@@ -1,4 +1,4 @@
-# 📣 ChatHub📣  Chat ⚡
+# 📣 ChatHub
 
 Real-time chat built on **SignalR** with both a **JavaScript client** and a **Blazor Server client**, sharing the same backend hub. Discord-inspired dark UI with avatars, emoji picker, typing indicator, private messaging, chat rooms, and live online counts.
 
@@ -132,4 +132,4 @@ dotnet run
 
 ---
 
-Built with ⚡ by [@codemikemike](https://github.com/codemikemike)
+Built with 📣 by [@codemikemike](https://github.com/codemikemike)
