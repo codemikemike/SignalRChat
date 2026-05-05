@@ -10,13 +10,73 @@ Built as part of UCL Datamatiker, Uge 19 — Synkrone opgaver / SignalR.
 
 ![ChatHub architecture overview](./docs/architecture.svg)
 
-Diagrammet viser hvordan komponenterne hænger sammen:
+Diagrammet viser hvordan komponenterne hænger sammen — bemærk specielt at pilene mellem hub, interfaces og services begge peger **ind mod interfacet**. Det er essensen af Dependency Inversion.
+
+### De 4 lag
 
 - **Tier 1 — Klienterne** (blå/lilla): To forskellige UI'er, samme job. JS-klienten er ren HTML/JS, Blazor-klienten er C# der renderes via SignalR-circuit.
-- **WebSocket** (begge veje): Når en bruger logger ind, åbnes en **vedvarende forbindelse** mellem browser og server. Begge parter kan sende beskeder når som helst — ingen polling.
 - **Tier 2 — ChatHub** (rød): Det centrale orkestreringspunkt. Modtager `invoke`-kald fra klienterne og delegerer videre. **Bevidst tynd** — ingen forretningslogik her.
-- **Tier 3 — Services** (grøn): Den faktiske logik. Hver service har ét ansvar (SRP).
-- **Tier 4 — Interfaces** (grå): Hub'en kender kun til disse abstraktioner, ikke de konkrete services. Det betyder vi kan swappe `MessageHistoryService` ud med en EF Core-version uden at hub'en mærker det.
+- **Tier 3 — Interfaces** (grå): Kontrakter der definerer *hvad* services kan, ikke *hvordan*. Hub'en kender kun til disse.
+- **Tier 4 — Services** (grøn): De konkrete implementations med faktisk logik.
+- **DI Container** (gul): Bindeleddet. Ved app-start mapper den hvert interface til sin konkrete klasse.
+
+### WebSocket — den vedvarende forbindelse
+
+Når en bruger logger ind, åbnes en **vedvarende forbindelse** mellem browser og server (begge veje). Begge parter kan sende beskeder når som helst — ingen polling, ingen overhead ved gentagne HTTP-requests.
+
+### Dependency Inversion i praksis
+
+Pilene i diagrammet viser hvordan afhængigheder peger:
+
+```
+ChatHub  →  Interface  ←  Service
+```
+
+Begge peger ind mod interfacet. Det betyder:
+
+- Hub'en (high-level) afhænger af **abstraktion**
+- Service'en (low-level) afhænger også af **abstraktion**
+- Begge kender kun til interfacet — ikke til hinanden
+
+I koden ser det sådan ud:
+
+**1. Interface — kontrakten:**
+```csharp
+// Interfaces/IUserPresenceService.cs
+public interface IUserPresenceService
+{
+    void AddUser(ConnectedUser user);
+    ConnectedUser? GetUser(string connectionId);
+    // ...
+}
+```
+
+**2. Hub — afhænger kun af interfacet:**
+```csharp
+// Hubs/ChatHub.cs
+public ChatHub(IUserPresenceService presence, ...)  // ← interface
+{
+    _presence = presence;
+}
+```
+
+**3. Service — implementerer interfacet:**
+```csharp
+// Services/UserPresenceService.cs
+public class UserPresenceService : IUserPresenceService  // ← implementer
+{
+    // konkret kode med ConcurrentDictionary
+}
+```
+
+**4. DI Container — binder dem sammen ved runtime:**
+```csharp
+// Extensions/ServiceCollectionExtensions.cs
+services.AddSingleton<IUserPresenceService, UserPresenceService>();
+//                    ↑ interface           ↑ konkret implementation
+```
+
+Det betyder vi kan swappe `UserPresenceService` ud med en Redis-version eller EF Core-version uden at ændre én linje i `ChatHub`. Det er **Dependency Inversion** (D'et i SOLID).
 
 ### Hvad sker der når man sender en besked?
 
