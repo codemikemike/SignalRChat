@@ -1,4 +1,4 @@
-# Nexus Chat ⚡
+# 📣 ChatHub📣  Chat ⚡
 
 Real-time chat built on **SignalR** with both a **JavaScript client** and a **Blazor Server client**, sharing the same backend hub. Discord-inspired dark UI with avatars, emoji picker, typing indicator, private messaging, chat rooms, and live online counts.
 

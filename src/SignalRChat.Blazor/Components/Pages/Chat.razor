@@ -2,7 +2,7 @@
 @implements IAsyncDisposable
 @inject IChatClientService Chat
 
-<PageTitle>Nexus Chat ⚡</PageTitle>
+<PageTitle>📣 ChatHub📣 Chat ⚡</PageTitle>
 
 @if (!_joined)
 {
@@ -10,7 +10,7 @@
         <div class="login-card">
             <div class="login-logo">
                 <span class="logo-bolt">⚡</span>
-                <h1>Nexus<span class="logo-accent">Chat</span></h1>
+                <h1>📣 ChatHub📣 <span class="logo-accent">Chat</span></h1>
             </div>
             <p class="login-tagline">Real-time. Raw. Refined. — Blazor edition</p>
 
@@ -29,7 +29,8 @@
                 </div>
                 <input @bind="_room" @bind:event="oninput" maxlength="30" placeholder="…or type a custom room name" />
 
-                <button class="login-submit" @onclick="JoinAsync" disabled="@(string.IsNullOrWhiteSpace(_userName) || string.IsNullOrWhiteSpace(_room))">
+                <button class="login-submit" @onclick="JoinAsync"
+                        disabled="@(string.IsNullOrWhiteSpace(_userName) || string.IsNullOrWhiteSpace(_room))">
                     Enter chat →
                 </button>
 
@@ -47,7 +48,7 @@ else
         <aside class="sidebar">
             <header class="sidebar-header">
                 <span class="logo-bolt">⚡</span>
-                <span class="sidebar-title">Nexus</span>
+                <span class="sidebar-title">📣 ChatHub📣 </span>
                 <span class="global-badge">@_globalOnline</span>
             </header>
 
@@ -63,7 +64,8 @@ else
                     @foreach (var u in _users.OrderBy(x => x.UserName))
                     {
                         var isSelf = u.UserName == _myUserName;
-                        <li class="user-list-item" @onclick="() => SelectPrivateTarget(u.UserName)" title="@(isSelf ? "You" : $"Click for private message to {u.UserName}")">
+                        <li class="user-list-item" @onclick="() => SelectPrivateTarget(u.UserName)"
+                            title="@(isSelf ? "You" : $"Click for private message to {u.UserName}")">
                             <img class="user-list-avatar" src="@u.Avatar" alt="" />
                             <span class="user-list-name @(isSelf ? "user-list-self" : "")">@u.UserName</span>
                         </li>
@@ -108,14 +110,9 @@ else
             </div>
 
             <form class="message-input-bar" @onsubmit="SendAsync" @onsubmit:preventDefault="true">
-                <input
-                    @bind="_inputText"
-                    @bind:event="oninput"
-                    type="text"
-                    id="messageInput"
-                    maxlength="500"
-                    placeholder="@GetInputPlaceholder()"
-                    disabled="@(Chat.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)" />
+                <input @bind="_inputText" @bind:event="oninput" type="text" id="messageInput" maxlength="500"
+                       placeholder="@GetInputPlaceholder()"
+                       disabled="@(Chat.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)" />
                 <button type="submit" class="send-btn" disabled="@(string.IsNullOrWhiteSpace(_inputText))">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
