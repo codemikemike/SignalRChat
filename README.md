@@ -6,6 +6,16 @@ Bygget som en del af UCL Datamatiker, Uge 19 — Synkrone opgaver / SignalR.
 
 ---
 
+## ⚡ TL;DR — Tech stack i én linje
+
+**Frontend:** HTML/CSS/ES modules + Blazor Server (C#)
+**Backend:** ASP.NET Core 8 + SignalR
+**Transport:** WebSocket (Lag 7) over TCP (Lag 4) — fallback til SSE/Long Polling
+**State:** In-memory (`ConcurrentDictionary`) bag interfaces for nem swap til Redis/DB
+**Arkitektur:** Clean Architecture-inspireret med SOLID & SoC, DI-baseret
+
+---
+
 ## 🏗️ Arkitektur — Big Picture
 
 ![ChatHub architecture overview](./docs/architecture.svg)
@@ -90,6 +100,196 @@ Det betyder `UserPresenceService` kan udskiftes med en Redis-version eller EF Co
 8. `uiRenderer.js` bygger et nyt DOM-element og scroller til bunden
 
 Hele rejsen tager typisk under 50ms — det føles instant. ⚡
+
+---
+
+## 🌐 Netværk & Protokoller
+
+### Hvor sidder SignalR i lagmodellerne?
+
+OSI-modellens 7 lag og TCP/IP-stakkens 4 lag mapper sådan her til denne app:
+
+| OSI Lag | TCP/IP Lag | Teknologi i denne app | Hvad sker der konkret |
+|---|---|---|---|
+| **7 — Application** | Application | SignalR / WebSocket frames | Hub-metoder, `SendMessage`, `JoinRoom` |
+| **6 — Presentation** | Application | UTF-8, JSON serialization | C#-objekter ↔ JSON over wire |
+| **5 — Session** | Application | WebSocket handshake | Vedvarende session efter HTTP upgrade |
+| **4 — Transport** | Transport | **TCP** | Pålidelig levering, rækkefølge, flow control |
+| **3 — Network** | Internet | IP | Routing mellem klient og server |
+| **2 — Data Link** | Link | Ethernet / WiFi | Frames mellem netværksenheder |
+| **1 — Physical** | Link | Kobber/fiber/radio | Selve signalet |
+
+### WebSocket-handshake — fra HTTP til persistent forbindelse
+
+WebSocket starter som en almindelig HTTP-request og **opgraderer** til en bidirektionel forbindelse:
+
+```
+Klient                          Server
+   │                               │
+   │ ── TCP 3-way handshake ──────►│   (SYN → SYN-ACK → ACK)
+   │                               │
+   │ ── HTTP GET /chathub ────────►│   Header: Upgrade: websocket
+   │ ◄── HTTP 101 Switching ───────│   Same TCP-forbindelse, nu opgraderet
+   │                               │
+   │ ══ WebSocket frames begge veje ═│   Lav latency, ingen polling
+```
+
+### Hvorfor TCP og ikke UDP?
+
+For chat skal beskeder **frem** og i **rigtig rækkefølge** — ellers ser samtalen rodet ud:
+
+| Egenskab | TCP (denne app) | UDP |
+|---|---|---|
+| Garanteret levering | ✅ | ❌ |
+| Rækkefølge bevares | ✅ | ❌ |
+| Forbindelses-baseret | ✅ | ❌ (forbindelsesløs) |
+| Hastighed | Lidt langsommere | Hurtigere |
+| Typisk use case | Chat, web, email, fil-overførsel | Gaming, video-stream, DNS |
+
+### SignalR's transport-fallback
+
+SignalR forsøger transporter i denne rækkefølge — alle bygger ovenpå TCP:
+
+1. **WebSocket** ← foretrukket (fuld duplex, lav latency)
+2. **Server-Sent Events (SSE)** ← kun server→klient streaming
+3. **Long Polling** ← HTTP-baseret fallback (virker næsten altid)
+
+Hvis WebSocket blokeres af proxy/firewall, falder SignalR automatisk til næste niveau ved opstart.
+
+---
+
+## 🔒 Security
+
+> **⚠️ Bemærk:** Dette er et lærings-/demo-projekt. Production-niveau security kræver flere tilføjelser — de er noteret nedenfor som "Næste skridt".
+
+### Security-emner og status
+
+| Område | Status i denne app | Hvordan det ville løses i produktion |
+|---|---|---|
+| **HTTPS / TLS** | ⚠️ HTTP i dev | Kestrel/IIS med HTTPS-cert + `app.UseHttpsRedirection()` + HSTS |
+| **Authentication** | ❌ Selvvalgt username | ASP.NET Core Identity + JWT på `[Authorize]`-hub |
+| **Input validation** | ✅ Trim + null/empty checks i hub | Tilføj længde-limits, regex, sanitization for HTML |
+| **XSS protection** | ✅ JS escaper alle indhold via `textContent` / Razor auto-encoder | Behold mønstret, undgå `innerHTML`/`@Html.Raw()` |
+| **CORS** | ⚠️ `AllowAnyOrigin` (dev only) | Whitelist konkrete origins |
+| **DDoS / rate limiting** | ❌ Ingen | ASP.NET Core Rate Limiter middleware + Cloudflare |
+
+### Detaljeret gennemgang
+
+#### 🔐 HTTPS / TLS — Transport-niveau kryptering
+
+**Lige nu:** HTTP på `localhost:5050` (kun dev). Beskeder er ukrypterede mellem browser og server.
+
+**Production:** WebSocket bliver til **WSS** (WebSocket Secure) ovenpå TLS 1.3. Hver byte mellem klient og server krypteres, så netværks-sniffning ikke afslører chat-indhold. ASP.NET Core understøtter dette out-of-the-box via Kestrel + cert.
+
+```csharp
+// Program.cs (production-tilføjelser)
+app.UseHttpsRedirection();
+app.UseHsts(); // Strict-Transport-Security header
+```
+
+#### 🪪 Authentication — Hvem er du?
+
+**Lige nu:** Brugeren skriver bare et username — ingen verifikation. Alle kan udgive sig for at være alle.
+
+**Production-flow med ASP.NET Core Identity + JWT:**
+
+```csharp
+// Hub beskyttes
+[Authorize]
+public class ChatHub : Hub
+{
+    public override Task OnConnectedAsync()
+    {
+        var userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        // Brug verificeret userId i stedet for selvvalgt username
+    }
+}
+```
+
+JWT-token sendes med ved WebSocket-opstart:
+
+```javascript
+new signalR.HubConnectionBuilder()
+    .withUrl("/chathub", { accessTokenFactory: () => myJwt })
+```
+
+Det her ville jeg implementere på samme måde som jeg har gjort i mit Slottet-projekt (.NET 8 Blazor Clean Architecture med ASP.NET Core Identity).
+
+#### 🛡️ Input validation & XSS protection
+
+**Lige nu (gjort):**
+- Hub'en validerer `null`/`empty` på username, room og besked-tekst
+- `string.Trim()` på input
+- JS-klienten bruger `textContent` (ikke `innerHTML`) når beskeder rendres → browseren escaper HTML automatisk
+- Blazor auto-encoder strings i `@variable` syntaks
+
+**Production-tilføjelser:**
+- Max-længde på beskeder (fx 500 chars) og brugernavne (fx 20 chars)
+- Regex på brugernavne (fx kun `[a-zA-Z0-9_-]`)
+- HTML-sanitization library hvis der skal være rich text (fx HtmlSanitizer NuGet)
+- Server-side validation af alle felter (aldrig kun klient-side!)
+
+```csharp
+public async Task SendMessage(string text)
+{
+    if (string.IsNullOrWhiteSpace(text)) return;
+    if (text.Length > 500) text = text[..500]; // truncate
+    // ... rest of logic
+}
+```
+
+#### 🌍 CORS — Cross-Origin Resource Sharing
+
+**Lige nu:** `AllowAnyOrigin()` i `Program.cs` — alle domæner kan forbinde til hub'en. Det er fint til dev fordi Blazor-klienten kører på en anden port end backend.
+
+**Production:** Whitelist konkrete origins:
+
+```csharp
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("https://chat.minside.dk")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
+});
+```
+
+#### 🚦 DDoS / Rate limiting
+
+**Lige nu:** Intet beskytter mod en bot der spammer 1000 beskeder i sekundet og crasher hub'en.
+
+**Production-løsning på flere niveauer:**
+
+| Lag | Løsning |
+|---|---|
+| Edge | Cloudflare / Azure Front Door med DDoS-beskyttelse |
+| Web server | Nginx rate limiting per IP |
+| App | ASP.NET Core Rate Limiter middleware |
+| Hub | Custom logic — fx max 5 beskeder per sekund per connection |
+
+```csharp
+// Program.cs — eksempel på app-niveau rate limit
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("chat", opt =>
+    {
+        opt.PermitLimit = 30;
+        opt.Window = TimeSpan.FromMinutes(1);
+    });
+});
+```
+
+### General security best practices fulgt i koden
+
+- ✅ **Parameterized DI** — ingen `new ConcreteService()` i hub
+- ✅ **`ConcurrentDictionary`** for thread-safe state — undgår race conditions
+- ✅ **Immutable records** for `ChatMessage` og `ConnectedUser` — kan ikke muteres efter oprettelse
+- ✅ **Server-side authority** — klienten kan ikke selv bestemme afsender (hub'en slår op via `ConnectionId`)
+- ✅ **Logging** via `ILogger` — sporbarhed ved problemer
+- ✅ **Auto-cleanup** — `OnDisconnectedAsync` rydder op i state, ingen memory leaks ved disconnect
 
 ---
 
