@@ -1,0 +1,339 @@
+@page "/"
+@implements IAsyncDisposable
+@inject IChatClientService Chat
+
+<PageTitle>Nexus Chat ⚡</PageTitle>
+
+@if (!_joined)
+{
+    <div class="login-overlay">
+        <div class="login-card">
+            <div class="login-logo">
+                <span class="logo-bolt">⚡</span>
+                <h1>Nexus<span class="logo-accent">Chat</span></h1>
+            </div>
+            <p class="login-tagline">Real-time. Raw. Refined. — Blazor edition</p>
+
+            <div class="login-form">
+                <label>Username</label>
+                <input @bind="_userName" @bind:event="oninput" maxlength="20" placeholder="e.g. codemikemike" />
+
+                <label>Pick a channel</label>
+                <div class="room-grid">
+                    @foreach (var r in _suggestedRooms)
+                    {
+                        <button type="button" class="room-pill @(r == _room ? "selected" : "")" @onclick="() => _room = r">
+                            @r
+                        </button>
+                    }
+                </div>
+                <input @bind="_room" @bind:event="oninput" maxlength="30" placeholder="…or type a custom room name" />
+
+                <button class="login-submit" @onclick="JoinAsync" disabled="@(string.IsNullOrWhiteSpace(_userName) || string.IsNullOrWhiteSpace(_room))">
+                    Enter chat →
+                </button>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <p style="color: var(--danger); margin-top: var(--space-2); font-size: 0.85rem;">@_errorMessage</p>
+                }
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <main class="chat-shell">
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <span class="logo-bolt">⚡</span>
+                <span class="sidebar-title">Nexus</span>
+                <span class="global-badge">@_globalOnline</span>
+            </header>
+
+            <section class="sidebar-section">
+                <h2 class="sidebar-heading">Channel</h2>
+                <div class="current-room">#@_currentRoom</div>
+                <button class="leave-btn" @onclick="LeaveAsync">Switch channel</button>
+            </section>
+
+            <section class="sidebar-section sidebar-users">
+                <h2 class="sidebar-heading">Online — @_users.Count</h2>
+                <ul class="user-list">
+                    @foreach (var u in _users.OrderBy(x => x.UserName))
+                    {
+                        var isSelf = u.UserName == _myUserName;
+                        <li class="user-list-item" @onclick="() => SelectPrivateTarget(u.UserName)" title="@(isSelf ? "You" : $"Click for private message to {u.UserName}")">
+                            <img class="user-list-avatar" src="@u.Avatar" alt="" />
+                            <span class="user-list-name @(isSelf ? "user-list-self" : "")">@u.UserName</span>
+                        </li>
+                    }
+                </ul>
+            </section>
+
+            <footer class="sidebar-footer">
+                <img class="my-avatar" src="@_myAvatar" alt="" />
+                <div class="my-info">
+                    <span class="my-username">@_myUserName</span>
+                    <span class="my-status">
+                        <span class="status-dot @GetStatusDotClass()"></span>
+                        <span>@_connectionStatus</span>
+                    </span>
+                </div>
+            </footer>
+        </aside>
+
+        <section class="chat-main">
+            <header class="chat-header">
+                <h2># @_currentRoom</h2>
+                <p class="chat-header-sub">Channel created for real-time chat • Be excellent to each other</p>
+            </header>
+
+            <div class="messages-container" @ref="_messagesRef">
+                @foreach (var m in _messages)
+                {
+                    var isSelf = m.User == _myUserName;
+                    var isPrivate = m.Type == 2;
+                    <div class="message @(isSelf ? "message-self" : "") @(isPrivate ? "message-private" : "")">
+                        <img class="message-avatar" src="@m.Avatar" alt="" />
+                        <div class="message-body">
+                            <div class="message-meta">
+                                <span class="message-author">@m.User</span>
+                                <span class="message-timestamp">@m.Timestamp.ToLocalTime().ToString("HH:mm")</span>
+                            </div>
+                            <div class="message-text">@m.Text</div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <form class="message-input-bar" @onsubmit="SendAsync" @onsubmit:preventDefault="true">
+                <input
+                    @bind="_inputText"
+                    @bind:event="oninput"
+                    type="text"
+                    id="messageInput"
+                    maxlength="500"
+                    placeholder="@GetInputPlaceholder()"
+                    disabled="@(Chat.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)" />
+                <button type="submit" class="send-btn" disabled="@(string.IsNullOrWhiteSpace(_inputText))">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                    </svg>
+                </button>
+            </form>
+        </section>
+
+        <div class="toast-container">
+            @foreach (var t in _toasts)
+            {
+                <div class="toast toast-@t.Kind">
+                    <div class="toast-content">
+                        @if (!string.IsNullOrEmpty(t.Avatar))
+                        {
+                            <img class="toast-avatar" src="@t.Avatar" alt="" />
+                        }
+                        <span>@t.Text</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </main>
+}
+
+@code {
+    private string _userName = "";
+    private string _room = "general";
+    private string _myUserName = "";
+    private string _myAvatar = "";
+    private string _currentRoom = "";
+    private string _inputText = "";
+    private string _errorMessage = "";
+    private string _connectionStatus = "Connecting…";
+    private string? _privateTarget;
+    private bool _joined;
+    private int _globalOnline;
+
+    private readonly string[] _suggestedRooms = { "general", "dev-talk", "gaming", "random" };
+    private readonly List<ChatMessage> _messages = new();
+    private readonly List<ConnectedUserDto> _users = new();
+    private readonly List<ToastModel> _toasts = new();
+    private ElementReference _messagesRef;
+
+    private record ToastModel(string Text, string? Avatar, string Kind);
+
+    protected override void OnInitialized()
+    {
+        Chat.OnMessageReceived += HandleMessage;
+        Chat.OnPrivateMessageReceived += HandleMessage;
+        Chat.OnHistoryReceived += HandleHistory;
+        Chat.OnUserJoined += HandleUserJoined;
+        Chat.OnUserLeft += HandleUserLeft;
+        Chat.OnPresenceUpdated += HandlePresenceUpdated;
+        Chat.OnGlobalCountUpdated += HandleGlobalCount;
+        Chat.OnJoinConfirmed += HandleJoinConfirmed;
+        Chat.OnConnectionStateChanged += HandleConnectionState;
+        Chat.OnError += HandleError;
+    }
+
+    private async Task JoinAsync()
+    {
+        try
+        {
+            _errorMessage = "";
+            if (Chat.State != Microsoft.AspNetCore.SignalR.Client.HubConnectionState.Connected)
+            {
+                await Chat.StartAsync();
+            }
+            await Chat.JoinRoomAsync(_userName.Trim(), _room.Trim().ToLowerInvariant());
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not connect: {ex.Message}. Is the chat server running on http://localhost:5050?";
+        }
+    }
+
+    private async Task LeaveAsync()
+    {
+        try { await Chat.LeaveRoomAsync(); } catch { /* ignore */ }
+        _joined = false;
+        _messages.Clear();
+        _users.Clear();
+        _privateTarget = null;
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_inputText)) return;
+        try
+        {
+            if (_privateTarget is not null)
+            {
+                await Chat.SendPrivateMessageAsync(_privateTarget, _inputText);
+                _privateTarget = null;
+            }
+            else
+            {
+                await Chat.SendMessageAsync(_inputText);
+            }
+            _inputText = "";
+        }
+        catch (Exception ex)
+        {
+            _toasts.Add(new ToastModel($"Send failed: {ex.Message}", null, "error"));
+        }
+    }
+
+    private void SelectPrivateTarget(string userName)
+    {
+        if (userName == _myUserName) return;
+        _privateTarget = userName;
+    }
+
+    private string GetInputPlaceholder()
+    {
+        if (_privateTarget is not null) return $"🔒 Private message to {_privateTarget}…";
+        return $"Send a message in #{_currentRoom}…";
+    }
+
+    private string GetStatusDotClass() => _connectionStatus.ToLower() switch
+    {
+        "connected" => "status-connected",
+        "disconnected" => "status-disconnected",
+        _ => "status-connecting"
+    };
+
+    // ---------- Event handlers ----------
+    private void HandleMessage(ChatMessage m)
+    {
+        _messages.Add(m);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleHistory(List<ChatMessage> history)
+    {
+        _messages.Clear();
+        _messages.AddRange(history);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleJoinConfirmed(JoinConfirmation j)
+    {
+        _myUserName = j.UserName;
+        _myAvatar = j.Avatar;
+        _currentRoom = j.Room;
+        _messages.Clear();
+        _joined = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleUserJoined(UserEvent e)
+    {
+        if (e.UserName == _myUserName) return;
+        AddToast($"{e.UserName} joined", e.Avatar, "join");
+    }
+
+    private void HandleUserLeft(UserEvent e)
+    {
+        if (e.UserName == _myUserName) return;
+        AddToast($"{e.UserName} left", e.Avatar, "leave");
+    }
+
+    private void HandlePresenceUpdated(RoomPresence p)
+    {
+        _users.Clear();
+        _users.AddRange(p.Users);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleGlobalCount(int count)
+    {
+        _globalOnline = count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleConnectionState(string state)
+    {
+        _connectionStatus = state switch
+        {
+            "connected" => "Connected",
+            "connecting" => "Connecting…",
+            "reconnecting" => "Reconnecting…",
+            "disconnected" => "Disconnected",
+            _ => state
+        };
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleError(string msg)
+    {
+        AddToast(msg, null, "error");
+    }
+
+    private void AddToast(string text, string? avatar, string kind)
+    {
+        var toast = new ToastModel(text, avatar, kind);
+        _toasts.Add(toast);
+        InvokeAsync(StateHasChanged);
+        _ = Task.Delay(4000).ContinueWith(_ =>
+        {
+            _toasts.Remove(toast);
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Chat.OnMessageReceived -= HandleMessage;
+        Chat.OnPrivateMessageReceived -= HandleMessage;
+        Chat.OnHistoryReceived -= HandleHistory;
+        Chat.OnUserJoined -= HandleUserJoined;
+        Chat.OnUserLeft -= HandleUserLeft;
+        Chat.OnPresenceUpdated -= HandlePresenceUpdated;
+        Chat.OnGlobalCountUpdated -= HandleGlobalCount;
+        Chat.OnJoinConfirmed -= HandleJoinConfirmed;
+        Chat.OnConnectionStateChanged -= HandleConnectionState;
+        Chat.OnError -= HandleError;
+        await Task.CompletedTask;
+    }
+}

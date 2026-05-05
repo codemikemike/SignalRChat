@@ -1,0 +1,68 @@
+/* Design tokens — single source of truth for the visual language */
+
+:root {
+    /* ---------- Color palette: Discord-inspired but custom ---------- */
+    --bg-deepest: #0a0a0f;
+    --bg-deeper: #13131a;
+    --bg-deep: #1a1b23;
+    --bg-medium: #232530;
+    --bg-elevated: #2b2d3a;
+    --bg-hover: #34374a;
+
+    /* Accent — electric purple/blurple with neon kicks */
+    --accent: #7c5cff;
+    --accent-bright: #9d83ff;
+    --accent-glow: rgba(124, 92, 255, 0.4);
+    --accent-soft: rgba(124, 92, 255, 0.12);
+
+    --neon-cyan: #00f0ff;
+    --neon-pink: #ff3ea5;
+    --neon-green: #00ff9d;
+    --neon-yellow: #ffd60a;
+    --danger: #ff4d4d;
+
+    /* Text */
+    --text-primary: #f4f4f8;
+    --text-secondary: #b4b6c4;
+    --text-muted: #7d8094;
+    --text-dim: #555866;
+
+    /* Borders & dividers */
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-medium: rgba(255, 255, 255, 0.1);
+
+    /* ---------- Typography ---------- */
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Space Grotesk', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    /* ---------- Spacing scale ---------- */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.5rem;
+    --space-6: 2rem;
+    --space-8: 3rem;
+
+    /* ---------- Radii ---------- */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-full: 999px;
+
+    /* ---------- Shadows ---------- */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.5);
+    --shadow-glow: 0 0 24px var(--accent-glow);
+
+    /* ---------- Layout ---------- */
+    --sidebar-width: 280px;
+    --header-height: 64px;
+    --input-height: 64px;
+
+    /* ---------- Transitions ---------- */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
