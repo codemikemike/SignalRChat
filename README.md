@@ -6,7 +6,34 @@ Built as part of UCL Datamatiker, Uge 19 — Synkrone opgaver / SignalR.
 
 ---
 
-## 🏗️ Arkitektur — SOLID & SoC
+## 🏗️ Arkitektur — Big Picture
+
+![ChatHub architecture overview](./docs/architecture.svg)
+
+Diagrammet viser hvordan komponenterne hænger sammen:
+
+- **Tier 1 — Klienterne** (blå/lilla): To forskellige UI'er, samme job. JS-klienten er ren HTML/JS, Blazor-klienten er C# der renderes via SignalR-circuit.
+- **WebSocket** (begge veje): Når en bruger logger ind, åbnes en **vedvarende forbindelse** mellem browser og server. Begge parter kan sende beskeder når som helst — ingen polling.
+- **Tier 2 — ChatHub** (rød): Det centrale orkestreringspunkt. Modtager `invoke`-kald fra klienterne og delegerer videre. **Bevidst tynd** — ingen forretningslogik her.
+- **Tier 3 — Services** (grøn): Den faktiske logik. Hver service har ét ansvar (SRP).
+- **Tier 4 — Interfaces** (grå): Hub'en kender kun til disse abstraktioner, ikke de konkrete services. Det betyder vi kan swappe `MessageHistoryService` ud med en EF Core-version uden at hub'en mærker det.
+
+### Hvad sker der når man sender en besked?
+
+1. Bruger trykker **Enter** i input-feltet
+2. JS-klienten kalder `connection.invoke("SendMessage", "hej")` → pakkes til en WebSocket-frame
+3. Frame'en lander i `ChatHub.SendMessage()` på serveren
+4. Hub'en spørger `IUserPresenceService` om hvem afsenderen er og hvilket rum han er i
+5. Hub'en spørger `IMessageHistoryService` om at gemme beskeden
+6. Hub'en broadcaster til alle i rummet via `Clients.Group(room).SendAsync("ReceiveMessage", message)`
+7. Alle klienter i rummet får frame'en og deres `connection.on("ReceiveMessage", ...)` handler kører
+8. `uiRenderer.js` bygger et nyt DOM-element og scroller til bunden
+
+Hele rejsen tager typisk under 50ms — det føles instant. ⚡
+
+---
+
+## 📂 Mappestruktur
 
 ```
 SignalRChat/
@@ -45,7 +72,9 @@ SignalRChat/
         └── wwwroot/css/app.css          # Same design language as JS client
 ```
 
-### SOLID-principper i denne kodebase
+---
+
+## 🎯 SOLID-principper i denne kodebase
 
 - **S — Single Responsibility**: Hub'en orkestrerer; `UserPresenceService` tracker tilstedeværelse; `AvatarService` genererer avatars; `MessageHistoryService` gemmer historik. Ingen klasse gør to ting.
 - **O — Open/Closed**: Vil du tilføje persistens af beskeder? Implementér `IMessageHistoryService` med EF Core og swap registreringen i `ServiceCollectionExtensions` — ingen kode i hub'en ændres.
